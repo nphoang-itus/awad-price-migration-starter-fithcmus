@@ -276,3 +276,81 @@ Kept: (to fill in)
 Changed: (to fill in)
 Rejected: (to fill in)
 By hand: (to fill in)
+
+## 2026-10-14 — "xong bước 7", but no run evidence found
+Tool: Claude Code (Opus 5.5).
+Prompt (verbatim):
+> xong bước 7
+
+Response (summary): looked before writing anything, with read-only commands (`git log`, `git status`, `git worktree list`, `ls`, `find`).
+- No `traffic-log.txt` or `check-log.txt` in the repo (nor in the parent folder).
+- No worktrees `../v1`…`../v4`.
+- `data/app.db` is 4 KB, which means empty: never seeded, no 20,000 items.
+
+So the real run has not happened, at least not in this folder. The assistant wrote no MIGRATION.md or SELF_ASSESSMENT from
+non-existent logs, and asked me to check.
+Files changed: this log only.
+
+## 2026-10-14 — question about RUNBOOK.md: "T4 (control) only"
+Tool: Claude Code (Opus 5.5).
+Prompt (verbatim):
+> T4 Control only là sao?
+
+Response (summary): explained the 4 terminals.
+- T1 = instance A (:3001), T2 = instance B (:3002), T3 = traffic, T4 = control (migrate, backfill, check).
+- "T4 (control) only" means the `step` / `logrun` helpers are defined only in T4. Shell functions exist only in the
+  terminal where they are defined, and only T4 runs checks.
+- `export DB_PATH=…` must be run in all 4 terminals.
+
+Files changed: this log only.
+
+## 2026-10-14 — question about RUNBOOK.md section 6 (which terminal?)
+Tool: Claude Code (Opus 5.5).
+Prompt (verbatim):
+> phần số 6 này là sao? chạy trên teminar nào? [pasted RUNBOOK section 6]
+
+Response (summary): explained that section 6 is three rolling restarts in a row: v2→v3, rollback v3→v2, v2→v3 again.
+Each round: T1 Ctrl+C + start, wait for "3001 back" in T3, then T2 the same, then a `step` in T4.
+Rewrote RUNBOOK sections 4, 6 and 7 as a 5-action table that names the terminal for every action. Same commands, clearer layout.
+Files changed: `RUNBOOK.md`, this log.
+
+## 2026-10-14 — first real run: 28,894 failed requests, diagnosis + RUNBOOK hardening
+Tool: Claude Code (Opus 5.5).
+Prompt (verbatim):
+> ở mục số 10, tôi thựuc hiện thì nó báo lỗi" [pasted output of RUNBOOK section 10, ending in `Error: no such table: menu_items`]
+
+Response (summary):
+- **Section 10 error.** Expected: after reverting 001 there is no table, and the D3 label already says so. The D1/D2 outputs
+  are good `migrate:down` evidence.
+- **The real problem: my first real run failed.** The assistant read (did not edit) `traffic-log.txt` and `check-log.txt`.
+  The log ends `RESULT: 28894 failed requests` (unavailable 682, stale 28070, contract 142).
+  Diagnosis, from log times (traffic started 11:09:30Z):
+  1. Migration 002 was applied at ~11:08:40Z, **before** traffic started. Steps 0/1 appear twice; the second "step 0"
+     already shows `price_vnd`. So 002 is not covered by the log.
+  2. At 145.8 s / 146.6 s **both** instances went down within 0.8 s → 682 `UNAVAILABLE`, during the backfill.
+     Then they came back at 166.7 s / 202.4 s, apparently as v3, since step 4 is labelled v3.
+     Also, the backfill was not interrupted (it ran to the end in 18 s), so "3a" is not an interruption.
+  3. Rollback v3→v2 at 301–325 s was fine.
+  4. "4F · FORWARD again" was written at 342 s with **no restart** between 4R and 4F. The next rolling (351–393 s) put
+     A on v4 while B was still **v2**.
+
+     Proof: every STALE / CONTRACT line comes via `:3002` between 363.9 s and 385.9 s. The contract body
+     `{"price":null,"priceVnd":null}` has v2's shape: v2 reads `price`, which v4 no longer writes, and v4-created rows have
+     `price` NULL. With v3 next to v4 this cannot happen.
+
+  Conclusion: operational mistakes, not code bugs. The code was rehearsed clean in the same sequence.
+- **RUNBOOK.md hardened.**
+  - `who` shows the real worktree of each port's process (tested by the assistant); every `step` now records `who` too.
+  - Checkpoint: traffic must be running before 002.
+  - Never Ctrl+C T1 and T2 together.
+  - The backfill is interrupted automatically with SIGINT after 4 s (tested in zsh on a scratch DB: stopped with 12,200 NULLs left).
+  - Each rollback round must show 2 new down/back pairs.
+  - `rm` without zsh globs.
+- **Recommendation.** Redo the run from scratch: the criteria 4/5 top bands need zero failures. Keep the failed logs outside the
+  repo, and mention the failed first attempt honestly.
+
+The assistant did not delete, move or edit any log.
+Kept: (to fill in)
+Changed: (to fill in)
+Rejected: (to fill in)
+By hand: (to fill in; I ran the first attempt myself)

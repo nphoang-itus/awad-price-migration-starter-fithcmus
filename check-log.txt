@@ -1,0 +1,190 @@
+
+=== STEP 0 · baseline · schema 001 · A=v1 B=v1 · 11:26:37Z
+:3001 → v1
+:3002 → v1
+columns                id, name, price
+rows                   22349
+CONSISTENT
+applied  002_add_price_vnd
+
+=== STEP 1 · schema 002 (price_vnd added, nullable) · A=v1 B=v1 · 11:26:37Z
+:3001 → v1
+:3002 → v1
+columns                id, name, price, price_vnd
+rows                   22462
+price_vnd_null         22462
+price_vnd_not_integer  0
+disagree               0
+CONSISTENT, but 22462 rows have no price_vnd yet — nothing may read price_vnd until they do
+
+=== STEP 2 · schema 002 · A=v2 B=v2 (dual write on both) · 11:26:48Z
+:3001 → v2
+:3002 → v2
+columns                id, name, price, price_vnd
+rows                   24980
+price_vnd_null         22058
+price_vnd_not_integer  0
+disagree               9
+INCONSISTENT
+$ backfill, stopped with SIGINT after 4 s (on purpose)
+backfill · db /Users/nphoang/Developer/hcmus/advanced-web/IA02/awad-price-migration-starter-fithcmus/data/app.db · 22049 rows to fix · batch 200 · pause 100ms
+  batch 10 · up to id 3950 · 2000 rows fixed
+  batch 20 · up to id 5950 · 4000 rows fixed
+  batch 30 · up to id 7950 · 6000 rows fixed
+
+=== STEP 3a · backfill interrupted on purpose · A=v2 B=v2 · 11:26:57Z
+:3001 → v2
+:3002 → v2
+columns                id, name, price, price_vnd
+rows                   26953
+price_vnd_null         14249
+price_vnd_not_integer  0
+disagree               0
+CONSISTENT, but 14249 rows have no price_vnd yet — nothing may read price_vnd until they do
+$ npm run -s backfill
+backfill · db /Users/nphoang/Developer/hcmus/advanced-web/IA02/awad-price-migration-starter-fithcmus/data/app.db · 14249 rows to fix · batch 500 · pause 50ms
+  batch 10 · up to id 14750 · 5000 rows fixed
+  batch 20 · up to id 19750 · 10000 rows fixed
+done in 1.5s · 29 batches · 14249 rows fixed
+remaining price_vnd NULL (price set): 0
+remaining disagree:                    0
+rows with NULL price (left as is):     0
+
+=== STEP 3 · after backfill · A=v2 B=v2 · 11:26:59Z
+:3001 → v2
+:3002 → v2
+columns                id, name, price, price_vnd
+rows                   27389
+price_vnd_null         0
+price_vnd_not_integer  0
+disagree               0
+CONSISTENT
+
+=== STEP 4 · schema 002 · A=v3 B=v3 (reads price_vnd) · before rollback · 11:27:10Z
+:3001 → v3
+:3002 → v3
+columns                id, name, price, price_vnd
+rows                   29890
+price_vnd_null         0
+price_vnd_not_integer  0
+disagree               0
+CONSISTENT
+
+=== STEP 4R · ROLLBACK · schema 002 · A=v2 B=v2 · 11:27:20Z
+:3001 → v2
+:3002 → v2
+columns                id, name, price, price_vnd
+rows                   32410
+price_vnd_null         0
+price_vnd_not_integer  0
+disagree               0
+CONSISTENT
+
+=== STEP 4F · FORWARD again · schema 002 · A=v3 B=v3 · 11:27:30Z
+:3001 → v3
+:3002 → v3
+columns                id, name, price, price_vnd
+rows                   34818
+price_vnd_null         0
+price_vnd_not_integer  0
+disagree               0
+CONSISTENT
+
+=== STEP 5 · schema 002 · A=v4 B=v4 · EXPECTED INCONSISTENT: v4 no longer writes price, so price is now a dead column · 11:27:41Z
+:3001 → v4
+:3002 → v4
+columns                id, name, price, price_vnd
+rows                   37269
+price_vnd_null         0
+price_vnd_not_integer  0
+disagree               1926
+INCONSISTENT
+applied  003_drop_price
+
+=== STEP 6 · schema 003 (price dropped) · A=v4 B=v4 · POINT OF NO RETURN · 11:27:41Z
+:3001 → v4
+:3002 → v4
+columns                id, name, price_vnd
+rows                   37409
+price_vnd_null         0
+price_vnd_not_integer  0
+CONSISTENT
+
+=== STEP end · traffic stopped · A=v4 B=v4 · 11:28:11Z
+:3001 → v4
+:3002 → v4
+columns                id, name, price_vnd
+rows                   44409
+price_vnd_null         0
+price_vnd_not_integer  0
+CONSISTENT
+
+=== MIGRATE:DOWN EVIDENCE · separate DB scratch.db
+applied  001_init
+applied  002_add_price_vnd
+$ npm run -s seed
+seeded 20000 menu items
+$ npm run -s backfill
+backfill · db /Users/nphoang/Developer/hcmus/advanced-web/IA02/awad-price-migration-starter-fithcmus/data/scratch.db · 20000 rows to fix · batch 500 · pause 50ms
+  batch 10 · up to id 5000 · 5000 rows fixed
+  batch 20 · up to id 10000 · 10000 rows fixed
+  batch 30 · up to id 15000 · 15000 rows fixed
+  batch 40 · up to id 20000 · 20000 rows fixed
+done in 2.1s · 40 batches · 20000 rows fixed
+remaining price_vnd NULL (price set): 0
+remaining disagree:                    0
+rows with NULL price (left as is):     0
+$ npm run -s migrate
+applied  003_drop_price
+
+=== STEP D0 · scratch · schema 003 · 11:28:15Z
+:3001 → DOWN
+:3002 → DOWN
+columns                id, name, price_vnd
+rows                   20000
+price_vnd_null         0
+price_vnd_not_integer  0
+CONSISTENT
+$ npm run -s migrate:down
+reverted 003_drop_price
+
+=== STEP D1 · scratch · after migrate:down (reverted 003) · 11:28:15Z
+:3001 → DOWN
+:3002 → DOWN
+columns                id, name, price_vnd, price
+rows                   20000
+price_vnd_null         0
+price_vnd_not_integer  0
+disagree               0
+CONSISTENT
+$ npm run -s migrate:down
+reverted 002_add_price_vnd
+
+=== STEP D2 · scratch · after migrate:down (reverted 002) · 11:28:16Z
+:3001 → DOWN
+:3002 → DOWN
+columns                id, name, price
+rows                   20000
+CONSISTENT
+$ npm run -s migrate:down
+reverted 001_init
+
+=== STEP D3 · scratch · after migrate:down (reverted 001) · 'no such table' expected · 11:28:16Z
+:3001 → DOWN
+:3002 → DOWN
+file:///Users/nphoang/Developer/hcmus/advanced-web/IA02/awad-price-migration-starter-fithcmus/scripts/check.js:8
+const count = (sql) => db.prepare(sql).get().n;
+                          ^
+
+Error: no such table: menu_items
+    at count (file:///Users/nphoang/Developer/hcmus/advanced-web/IA02/awad-price-migration-starter-fithcmus/scripts/check.js:8:27)
+    at file:///Users/nphoang/Developer/hcmus/advanced-web/IA02/awad-price-migration-starter-fithcmus/scripts/check.js:9:52
+    at ModuleJob.run (node:internal/modules/esm/module_job:569:25)
+    at async node:internal/modules/esm/loader:650:26
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:105:5) {
+  code: 'ERR_SQLITE_ERROR',
+  errcode: 1,
+  errstr: 'SQL logic error'
+}
+
+Node.js v26.11.1

@@ -1,0 +1,45 @@
+
+=== traffic start 2026-10-14T11:26:27.169Z · targets http://localhost:3001 http://localhost:3002 · new clients 0
+   5.0s ok=58635 error=0 contract=0 stale=0 unavailable=0 rerouted=0
+  10.0s ok=116077 error=0 contract=0 stale=0 unavailable=0 rerouted=0
+  15.0s ok=171764 error=0 contract=0 stale=0 unavailable=0 rerouted=0
+  16.0s http://localhost:3001 down (ECONNRESET)
+  16.3s http://localhost:3001 back
+  18.5s http://localhost:3002 down (ECONNRESET)
+  18.8s http://localhost:3002 back
+  20.0s ok=236642 error=0 contract=0 stale=0 unavailable=0 rerouted=12
+  22.0s new clients 0 -> 0.3 (from /Users/nphoang/Developer/hcmus/advanced-web/IA02/awad-price-migration-starter-fithcmus/new-clients.txt)
+  25.0s ok=291040 error=0 contract=0 stale=0 unavailable=0 rerouted=12
+  30.0s ok=343125 error=0 contract=0 stale=0 unavailable=0 rerouted=12
+  35.0s ok=397811 error=0 contract=0 stale=0 unavailable=0 rerouted=12
+  37.9s http://localhost:3001 down (ECONNRESET)
+  38.2s http://localhost:3001 back
+  40.0s ok=455424 error=0 contract=0 stale=0 unavailable=0 rerouted=17
+  40.4s http://localhost:3002 down (ECONNRESET)
+  40.7s http://localhost:3002 back
+  45.0s ok=515791 error=0 contract=0 stale=0 unavailable=0 rerouted=19
+  48.2s http://localhost:3001 down (ECONNRESET)
+  48.5s http://localhost:3001 back
+  50.0s ok=575295 error=0 contract=0 stale=0 unavailable=0 rerouted=21
+  50.7s http://localhost:3002 down (ECONNRESET)
+  51.0s http://localhost:3002 back
+  55.0s ok=635237 error=0 contract=0 stale=0 unavailable=0 rerouted=27
+  58.5s http://localhost:3001 down (ECONNREFUSED)
+  58.8s http://localhost:3001 back
+  60.0s ok=693636 error=0 contract=0 stale=0 unavailable=0 rerouted=32
+  61.0s http://localhost:3002 down (ECONNRESET)
+  61.3s http://localhost:3002 back
+  65.0s ok=753233 error=0 contract=0 stale=0 unavailable=0 rerouted=34
+  68.9s http://localhost:3001 down (ECONNRESET)
+  69.2s http://localhost:3001 back
+  70.0s ok=810447 error=0 contract=0 stale=0 unavailable=0 rerouted=36
+  71.4s http://localhost:3002 down (ECONNRESET)
+  71.7s http://localhost:3002 back
+  75.0s ok=871667 error=0 contract=0 stale=0 unavailable=0 rerouted=39
+  80.0s ok=929242 error=0 contract=0 stale=0 unavailable=0 rerouted=39
+  85.0s ok=986366 error=0 contract=0 stale=0 unavailable=0 rerouted=39
+  90.0s ok=1043275 error=0 contract=0 stale=0 unavailable=0 rerouted=39
+  95.0s ok=1099709 error=0 contract=0 stale=0 unavailable=0 rerouted=39
+ 100.0s ok=1155555 error=0 contract=0 stale=0 unavailable=0 rerouted=39
+ 104.8s FINAL ok=1209670 error=0 contract=0 stale=0 unavailable=0 rerouted=39
+RESULT: zero failed requests
