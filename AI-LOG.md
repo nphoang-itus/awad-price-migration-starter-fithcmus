@@ -240,3 +240,39 @@ Response (summary): recorded in CLAUDE.md.
 
 The alternative (skip the v4 check) was rejected: the PDF asks for a check "after every step".
 By hand: the choice.
+
+## 2026-10-14 — step 7: runbook for the one real run
+Tool: Claude Code (Opus 5.5).
+Prompt (verbatim):
+> xong bước 6
+
+Response (summary): wrote `RUNBOOK.md`, the exact command sequence for the single real run (4 terminals, worktrees `../v1`…`../v4`).
+- Schema 001 is created from `../v1`, 002 is applied from `../v2`, 003 from `../v4`, so each migration happens under traffic.
+- `step` / `logrun` shell helpers add labelled, UTC-timed entries to `check-log.txt`.
+- `new-clients.txt` gets 0.3 after v2 is on both instances.
+- The backfill is interrupted on purpose, then rerun.
+- v3 → v2 → v3 rollback with checks before and after.
+- The v4 check is labelled "EXPECTED INCONSISTENT", then 003 is applied right after.
+- The `migrate:down` evidence uses a separate DB.
+
+CLAUDE.md now points to RUNBOOK.md.
+
+Rehearsal by the assistant of the whole sequence, in compressed form (scratchpad DB and logs, `git archive` copies instead of worktrees,
+about 35 s of traffic; deleted after):
+- 0 CONSISTENT
+- 1 "CONSISTENT, but … no price_vnd yet"
+- 2 INCONSISTENT (`disagree 5`). This is exactly the v1-overwrites-v2 case found in step 1, and it confirms the backfill must fix
+  disagreeing rows, not only NULLs.
+- 3a interrupted, partial
+- 3 CONSISTENT
+- 4 / 4R / 4F CONSISTENT
+- 5 INCONSISTENT (expected)
+- 6 CONSISTENT
+
+Traffic: 20 down/back lines, `new clients 0 -> 0.3` logged, `RESULT: zero failed requests`, 0 server errors.
+The real run has NOT been done; that is mine to do.
+Asked for: the next step.
+Kept: (to fill in)
+Changed: (to fill in)
+Rejected: (to fill in)
+By hand: (to fill in)

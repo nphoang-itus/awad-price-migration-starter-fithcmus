@@ -108,6 +108,8 @@ Rules for the code:
 
 ## Runbook skeleton (the student runs this; refine with them, do not execute it)
 
+**The full, current runbook is `RUNBOOK.md`** (step 7, 2026-10-14). The skeleton below is kept for context; if they differ, RUNBOOK.md wins.
+
 PDF, criterion 4: "One continuous traffic-log.txt covers **every deploy and every migration**".
 So 002 and 003 must be applied **while traffic runs**. The initial setup must create schema 001 only. `npm run migrate` from
 `main` would apply 002 as well, so the setup runs from the `v1` worktree, whose tag has only `001`.
