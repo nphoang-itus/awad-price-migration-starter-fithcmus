@@ -163,3 +163,31 @@ Kept: (to fill in)
 Changed: (to fill in)
 Rejected: (to fill in)
 By hand: (to fill in)
+
+## 2026-10-14 — step 5: code v3 (reads price_vnd)
+Tool: Claude Code (Opus 5.5).
+Prompt (verbatim):
+> xong bước 4
+
+Response (summary):
+- **`src/app.js` → v3.**
+  - `SELECT id, name, price_vnd` on list and get; `price = price_vnd / 1000`, `priceVnd = price_vnd`.
+  - `/orders` uses `price_vnd / 1000` as `unit_price` (old unit).
+  - Writes are unchanged from v2: both columns in one statement, so v3 → v2 stays safe.
+  - No fallback to `price` when `price_vnd` is NULL. v3 relies on the backfill having finished; after that,
+    v2/v3 always write both columns.
+- **`test/app.test.js`.**
+  - The fixture inserts `price_vnd` too, as the backfill would have.
+  - New test: change only `price_vnd` in the DB and see GET and list follow it, which proves reads come from the new column.
+  - The order test also checks `order_items.unit_price` is still in thousands.
+  - `npm test` 9/9.
+
+Rehearsal by the assistant (scratchpad DB and a `git archive v2` copy, ports 3101/3102, all deleted after):
+migrate → seed → backfill, then two v2 instances and traffic for 24 s with new clients 0.3.
+Sequence: rolling v2→v3, check `CONSISTENT`, rollback v3→v2 rolling, check `CONSISTENT`, v2→v3 again, check `CONSISTENT`.
+One instance at a time: 6 down/back pairs, `RESULT: zero failed requests`.
+Asked for: the next step.
+Kept: (to fill in)
+Changed: (to fill in)
+Rejected: (to fill in)
+By hand: (to fill in)

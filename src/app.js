@@ -1,10 +1,10 @@
 import { createServer } from 'node:http';
 
-// v2 of the menu service. Prices are stored in THOUSANDS of dong, as a float:
-// 45.5 means 45,500 đ. That was last year's decision; IA#2 undoes it.
-// v2 (needs migration 002): still READS `price`, WRITES both `price` and
-// `price_vnd` (dong, integer) in one statement on every write path, accepts
-// `price` or `priceVnd`, and returns both.
+// v3 of the menu service. Prices used to be stored in THOUSANDS of dong, as a
+// float (45.5 = 45,500 đ); IA#2 moves them to `price_vnd`, dong, integer.
+// v3 (needs migration 002 AND a finished backfill): READS `price_vnd` only
+// (price = price_vnd / 1000), still WRITES both `price` and `price_vnd` in one
+// statement on every write path, so v2 can still be rolled back to.
 
 const json = (res, status, body) => {
   res.writeHead(status, { 'content-type': 'application/json' });
@@ -38,15 +38,16 @@ function priceFrom(body) {
 
 export function createApp(db) {
   const q = {
-    list: db.prepare('SELECT id, name, price FROM menu_items ORDER BY id LIMIT ? OFFSET ?'),
-    get: db.prepare('SELECT id, name, price FROM menu_items WHERE id = ?'),
+    list: db.prepare('SELECT id, name, price_vnd FROM menu_items ORDER BY id LIMIT ? OFFSET ?'),
+    get: db.prepare('SELECT id, name, price_vnd FROM menu_items WHERE id = ?'),
     insert: db.prepare('INSERT INTO menu_items (name, price, price_vnd) VALUES (?, ?, ?)'),
     setPrice: db.prepare('UPDATE menu_items SET price = ?, price_vnd = ? WHERE id = ?'),
     insertOrder: db.prepare("INSERT INTO orders (created_at) VALUES (datetime('now'))"),
     insertLine: db.prepare('INSERT INTO order_items (order_id, menu_item_id, qty, unit_price) VALUES (?, ?, ?, ?)'),
   };
 
-  const view = (row) => ({ id: row.id, name: row.name, price: row.price, priceVnd: row.price == null ? null : toVnd(row.price) });
+  const fromVnd = (v) => (v == null ? null : v / 1000);
+  const view = (row) => ({ id: row.id, name: row.name, price: fromVnd(row.price_vnd), priceVnd: row.price_vnd });
 
   async function handle(req, res) {
     const url = new URL(req.url, 'http://x');
@@ -96,8 +97,9 @@ export function createApp(db) {
         for (const { menuItemId, qty } of body.items) {
           const item = q.get.get(menuItemId);
           if (!item || !Number.isInteger(qty) || qty < 1) throw Object.assign(new Error(), { status: 400 });
-          q.insertLine.run(orderId, item.id, qty, item.price);
-          total += item.price * qty;
+          const unitPrice = fromVnd(item.price_vnd);           // order_items.unit_price keeps its old unit (thousands)
+          q.insertLine.run(orderId, item.id, qty, unitPrice);
+          total += unitPrice * qty;
         }
         db.exec('COMMIT');
         return json(res, 201, { id: Number(orderId), total: Math.round(total * 1000) / 1000 });

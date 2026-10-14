@@ -10,7 +10,8 @@ before(async () => {
   const dir = new URL('../migrations/', import.meta.url);
   for (const f of readdirSync(dir).filter((f) => f.endsWith('.up.sql')).sort())
     db.exec(readFileSync(new URL(f, dir), 'utf8'));          // every migration, in order
-  db.exec("INSERT INTO menu_items (name, price) VALUES ('Phở bò', 45.5), ('Trà đá', 5)");
+  // v3 reads price_vnd; in production the backfill has filled it before v3 runs.
+  db.exec("INSERT INTO menu_items (name, price, price_vnd) VALUES ('Phở bò', 45.5, 45500), ('Trà đá', 5, 5000)");
   server = createApp(db).listen(0);
   await new Promise((r) => server.once('listening', r));
   base = `http://localhost:${server.address().port}`;
@@ -67,9 +68,17 @@ test('price and priceVnd must agree; priceVnd must be a positive integer', async
   assert.deepEqual(stored(2), { price: 6, price_vnd: 6000 });
 });
 
+test('reads come from price_vnd, not price', async () => {
+  db.exec('UPDATE menu_items SET price_vnd = 6500 WHERE id = 2');   // only the new column changes
+  assert.deepEqual((await call('GET', '/menu/2')).body, { id: 2, name: 'Trà đá', price: 6.5, priceVnd: 6500 });
+  assert.equal((await call('GET', '/menu?limit=5')).body[1].price, 6.5);
+  db.exec('UPDATE menu_items SET price_vnd = 6000 WHERE id = 2');
+});
+
 test('POST /orders totals at the current price', async () => {
   const r = await call('POST', '/orders', { items: [{ menuItemId: 1, qty: 2 }, { menuItemId: 2, qty: 1 }] });
   assert.deepEqual(r, { status: 201, body: { id: 1, total: 97 } });
+  assert.deepEqual(db.prepare('SELECT unit_price FROM order_items WHERE order_id = 1 ORDER BY menu_item_id').all().map((x) => x.unit_price), [45.5, 6]);
 });
 
 test('errors have one shape', async () => {
