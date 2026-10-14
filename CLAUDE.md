@@ -2,6 +2,10 @@
 
 Context for an AI assistant working in this repository. Read this fully before touching anything.
 
+**Source of truth (decided by the student, 2026-10-14):** `IA02-requirements.pdf` (the rubric) first, then `README.md`,
+then this file. If this file disagrees with the PDF, fix this file and say so in AI-LOG.md. Any design choice the PDF does
+not require must be named as the assistant's own addition, so the student can reject it.
+
 ## Goal
 
 In the `smart-restaurant` menu service, replace `menu_items.price` (REAL, thousands of dong, e.g. `45.5` = 45,500 đ)
@@ -99,25 +103,38 @@ Rules for the code:
 
 ## Runbook skeleton (the student runs this; refine with them, do not execute it)
 
+PDF, criterion 4: "One continuous traffic-log.txt covers **every deploy and every migration**".
+So 002 and 003 must be applied **while traffic runs**. The initial setup must create schema 001 only. `npm run migrate` from
+`main` would apply 002 as well, so the setup runs from the `v1` worktree, whose tag has only `001`.
+Tag `v1` already exists on `2b889bd` (the starter); do not re-create it.
+
 ```bash
 export DB_PATH="$PWD/data/app.db"            # absolute, same file for every version
-npm run migrate && npm run seed              # schema 001 + 20,000 items
-git tag v1                                    # starter as received
-rm -f traffic-log.txt check-log.txt           # one clean run; traffic.js appends
+git worktree add ../v1 v1                     # v1 code + only migration 001
+rm -f data/app.db* traffic-log.txt check-log.txt new-clients.txt   # one clean run; traffic.js appends
+(cd ../v1 && npm run migrate && npm run seed) # schema 001 ONLY + 20,000 items (not from main!)
 
 # label every check:
 step() { echo "=== STEP $1" | tee -a check-log.txt; npm run check 2>&1 | tee -a check-log.txt; }
 
+# Start instances ONE AT A TIME and wait for "menu service on :PORT" before the next. Starter `db.js` runs
+# `journal_mode = WAL` before `busy_timeout`, so two processes opening the file at the same instant can crash
+# with "database is locked" (seen in the assistant's scratch rehearsal, 2026-10-14). Always check the instance printed that line.
 PORT=3001 npm start   &                       # instance A (v1)
 PORT=3002 npm start   &                       # instance B (v1)
-npm run traffic                               # terminal 3, left running all the way
+npm run traffic                               # terminal 3, left running all the way (from main: patched traffic.js)
+# step 1: `npm run migrate` from main (applies 002 only, since 003 is not committed before v4), under traffic.
 # rolling restart: kill A's pid, start A from ../v2 worktree, wait for "back" in the log, then B.
-# repeat the pattern for v3, rollback to v2, v3 again, v4.
+# once BOTH run v2 (README: "Turn it on once every running version offers priceVnd"): echo 0.3 > new-clients.txt
+# repeat the pattern for v3, rollback to v2, v3 again, v4; after v4 on both: `npm run migrate` (applies 003), under traffic.
+# keep traffic running for a while after 003 (PDF: "from v1 to after the last migration"), then Ctrl+C → RESULT line.
 ```
 
-`migrate:down` evidence (separate DB, so the real one is untouched): on `DB_PATH=$PWD/data/scratch.db` run `migrate`, `seed`,
-then `migrate:down` (reverts 003), `check`, `migrate:down` (reverts 002), `check`; paste the output, labelled, into `check-log.txt`.
-(`migrate:down` reverts only the last step, so each migration is exercised once.)
+`migrate:down` evidence (PDF criterion 2: "migrate:down was run once for each — on a separate database file is fine — with the
+output in check-log.txt"). On `DB_PATH=$PWD/data/scratch.db`: `migrate`, `seed`, then `migrate:down` (reverts 003), `check`,
+`migrate:down` (reverts 002), `check`, `migrate:down` (reverts 001; `check` may fail with no table, which is expected, so record it as is).
+Paste everything, labelled, into `check-log.txt`. `migrate:down` reverts only the last step, so each migration is exercised once.
+001 is included because "each" is not limited to the new migrations, and it costs nothing.
 
 ## Deliverables checklist (one zip named `<StudentID>_<total>.zip`, including `.git`)
 

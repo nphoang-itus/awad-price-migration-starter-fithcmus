@@ -98,3 +98,41 @@ Kept: (to fill in)
 Changed: (to fill in)
 Rejected: (to fill in)
 By hand: I asked for the change to be checked against the original requirements before accepting it.
+
+## 2026-10-14 — CLAUDE.md checked against the PDF + step 3: code v2 (expand: dual write)
+Tool: Claude Code (Opus 5.5).
+Prompt (verbatim):
+> xong bước 2. bây giờ cứ ưu tiên nội dung trong @IA02-requirements.pdf trước, nếu sai thì chỉnh @CLAUDE.md để đảm bảo chính xác luôn
+
+Response (summary):
+- **CLAUDE.md vs PDF.** Fixed a real runbook bug. The old runbook ran `npm run migrate` from `main` before traffic,
+  which would have applied 002 with no traffic running. That breaks criterion 4: "covers every deploy and every migration".
+  New runbook:
+  - initial migrate + seed from the `../v1` worktree (schema 001 only);
+  - 002 and 003 applied under traffic;
+  - `new-clients.txt` set to 0.3 only once both instances run v2;
+  - traffic kept running after 003.
+
+  Also: `migrate:down` evidence now includes 001; the runbook no longer says `git tag v1` (the tag already exists);
+  a "source of truth: PDF → README → CLAUDE.md" rule; a note to start instances one at a time.
+- **v2** (`src/app.js`): reads `price`, writes `price` + `price_vnd` in ONE statement on both write paths
+  (`INSERT … (name, price, price_vnd)` and `UPDATE … SET price = ?, price_vnd = ?`).
+  Accepts `price` or `priceVnd`. `priceVnd` must be a positive safe integer ≤ 100,000,000; if both are sent they must agree, else 400.
+  Responses are `{id, name, price, priceVnd}` with `priceVnd = Math.round(price*1000)`. `/orders` is unchanged (reads `price`).
+- **Tests** (`test/app.test.js`): first test now expects `priceVnd`. New tests read the DB directly to show both columns
+  are written by PATCH and POST (from `price` and from `priceVnd`), plus the validation cases. `npm test` 8/8 pass.
+- **Rehearsal by the assistant** (scratchpad DB, ports 3101/3102, log in scratchpad; not `data/app.db`, not `traffic-log.txt`):
+  - A=v2 + B=v1 (copied from tag v1 with `git archive`, no worktree created), traffic 16 s;
+  - B restarted as v2;
+  - `0.3` written to the share file → log line `new clients 0 -> 0.3`;
+  - `RESULT: zero failed requests`, check `disagree 0`.
+
+  The first attempt had 40 `unavailable`. The assistant's script started A and B at the same instant, A crashed on
+  `database is locked` (starter `db.js` sets WAL before `busy_timeout`), and then B was killed. This was a fault of the test
+  script, not of v2. Rerun with a 1 s gap was clean. `src/db.js` was NOT changed.
+
+Asked for: follow the PDF first, fix CLAUDE.md where it is wrong, then continue.
+Kept: (to fill in)
+Changed: (to fill in)
+Rejected: (to fill in)
+By hand: (to fill in)
