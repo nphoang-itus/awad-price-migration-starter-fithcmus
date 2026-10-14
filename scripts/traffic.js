@@ -6,6 +6,9 @@
 //   DURATION=0        seconds, 0 = until Ctrl+C
 //   NEW_CLIENTS=0     share of requests from new clients (0..1) — they send and
 //                     expect `priceVnd`; turn it on once your API offers it
+//   NEW_CLIENTS_FILE=new-clients.txt   [IA#2 patch, disclosed in AI-LOG.md and
+//                     MIGRATION.md] re-read every second; if it holds a number in
+//                     0..1 it replaces the share above, and the change is logged
 //   IDS=2000          menu ids 1..IDS are used; 1..50 are never re-priced
 //   LOG=traffic-log.txt
 //
@@ -13,11 +16,12 @@
 // does not show the last acknowledged write ("stale"), and any moment when NO
 // instance answers ("unavailable"). One instance being down while another
 // answers is a rolling restart, not a failure — it is counted as "rerouted".
-import { appendFileSync } from 'node:fs';
+import { appendFileSync, readFileSync } from 'node:fs';
 
 const TARGETS = (process.env.TARGETS ?? 'http://localhost:3001,http://localhost:3002').split(',');
 const DURATION = Number(process.env.DURATION ?? 0);
 const NEW_CLIENTS = Number(process.env.NEW_CLIENTS ?? 0);
+const NEW_CLIENTS_FILE = process.env.NEW_CLIENTS_FILE ?? 'new-clients.txt';
 const IDS = Number(process.env.IDS ?? 2000);
 const LOG = process.env.LOG ?? 'traffic-log.txt';
 const WORKERS = 8;
@@ -67,7 +71,8 @@ const expected = new Map(); // id -> last acknowledged price, in thousands
 const inflight = new Set();
 const created = [];         // ids of items this run created, read back later
 const pick = (lo, hi) => lo + Math.floor(Math.random() * (hi - lo + 1));
-const isNew = () => Math.random() < NEW_CLIENTS;
+let newClients = NEW_CLIENTS; // [IA#2 patch] may change while running, see NEW_CLIENTS_FILE
+const isNew = () => Math.random() < newClients;
 
 function checkItem(r, client, where) {
   const d = r.data;
@@ -160,6 +165,17 @@ for (let id = 1; id <= FIXED; id++) {
 
 log(`\n=== traffic start ${new Date().toISOString()} · targets ${TARGETS.join(' ')} · new clients ${NEW_CLIENTS}`);
 let stop = false;
+// [IA#2 patch] let the new-client share change mid-run, so one continuous log can cover v1 and later versions.
+const readShare = () => {
+  let v;
+  try { v = Number(readFileSync(NEW_CLIENTS_FILE, 'utf8').trim()); } catch { return; }
+  if (Number.isFinite(v) && v >= 0 && v <= 1 && v !== newClients) {
+    log(`${ts()} new clients ${newClients} -> ${v} (from ${NEW_CLIENTS_FILE})`);
+    newClients = v;
+  }
+};
+readShare();
+const shareTick = setInterval(readShare, 1000);
 process.on('SIGINT', () => { stop = true; });
 if (DURATION) setTimeout(() => { stop = true; }, DURATION * 1000);
 
@@ -173,6 +189,7 @@ await Promise.all(Array.from({ length: WORKERS }, async () => {
   }
 }));
 clearInterval(tick);
+clearInterval(shareTick);
 log(`${ts()} FINAL ok=${n.ok} error=${n.error} contract=${n.contract} stale=${n.stale} unavailable=${n.unavailable} rerouted=${n.rerouted}`);
 log(bad() === 0 ? 'RESULT: zero failed requests' : `RESULT: ${bad()} failed requests`);
 process.exit(bad() === 0 ? 0 : 1);
