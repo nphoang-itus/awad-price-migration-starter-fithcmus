@@ -96,7 +96,12 @@ Rules for the code:
    offers `priceVnd`, but `traffic.js` reads it once at start, and new clients get 400 from v1. Options: accept a split log
    (rubric band 11–16 for criterion 4), or ask the lecturer whether a small, disclosed patch to `traffic.js`
    (re-read the share from a file) is acceptable. Never patch without the student's explicit go-ahead; if patched, log it in AI-LOG.md.
-2. **`check.js` after v4 is deployed, before the drop.** v4 stops writing `price`, so re-priced rows leave `price` stale and
+2. **DECIDED 2026-10-14 by the student: record the real output, then drop right away.** The check after v4 is labelled with an
+   explanation and kept as is (INCONSISTENT); 003 is applied immediately after, then check again (CONSISTENT). MIGRATION.md explains
+   that `price` is a dead column at that point (no running version reads it). **`check.js` after v4 is deployed, before the drop.** Verified in the assistant's rehearsal: `disagree 1936`, `INCONSISTENT`,
+   because v4 no longer writes `price`. After 003, `CONSISTENT`. Also verified: v3 code crashes at start on schema 003
+   (`table menu_items has no column named price`).
+   Original note: v4 stops writing `price`, so re-priced rows leave `price` stale and
    `disagree > 0` makes `check` print `INCONSISTENT`. Decide with the student: run the drop immediately after v4 is on both instances,
    or record the expected result with an explanation in MIGRATION.md. Do not hide or edit the output.
 3. **Which step is the point of no return** and the exact reason (student writes the final sentence).
@@ -131,10 +136,18 @@ npm run traffic                               # terminal 3, left running all the
 ```
 
 `migrate:down` evidence (PDF criterion 2: "migrate:down was run once for each — on a separate database file is fine — with the
-output in check-log.txt"). On `DB_PATH=$PWD/data/scratch.db`: `migrate`, `seed`, then `migrate:down` (reverts 003), `check`,
-`migrate:down` (reverts 002), `check`, `migrate:down` (reverts 001; `check` may fail with no table, which is expected, so record it as is).
+output in check-log.txt"). `seed.js` inserts into `price`, so it cannot run once 003 is applied. Build the scratch DB in stages
+(verified by the assistant on a scratchpad DB, 2026-10-14):
+```bash
+export DB_PATH="$PWD/data/scratch.db"; rm -f data/scratch.db*
+(cd ../v3 && npm run migrate)      # 001 + 002 only (tag v3 has no 003)
+npm run seed && npm run backfill   # data in both columns
+npm run migrate && npm run check   # applies 003 → CONSISTENT (columns id, name, price_vnd)
+npm run migrate:down && npm run check   # reverts 003 → price re-created from price_vnd, disagree 0, CONSISTENT
+npm run migrate:down && npm run check   # reverts 002 → CONSISTENT (columns id, name, price)
+npm run migrate:down && npm run check   # reverts 001 → check fails "no such table: menu_items" (expected; record as is)
+```
 Paste everything, labelled, into `check-log.txt`. `migrate:down` reverts only the last step, so each migration is exercised once.
-001 is included because "each" is not limited to the new migrations, and it costs nothing.
 
 ## Deliverables checklist (one zip named `<StudentID>_<total>.zip`, including `.git`)
 

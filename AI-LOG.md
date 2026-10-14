@@ -191,3 +191,52 @@ Kept: (to fill in)
 Changed: (to fill in)
 Rejected: (to fill in)
 By hand: (to fill in)
+
+## 2026-10-14 — step 6: code v4 + migration 003 (contract)
+Tool: Claude Code (Opus 5.5).
+Prompt (verbatim):
+> xong bước 5
+
+Response (summary):
+- **`src/app.js` → v4.** Neither reads nor writes `price`: `INSERT … (name, price_vnd)`, `UPDATE … SET price_vnd = ?`.
+  Every response still has `price = price_vnd / 1000`, and old clients may still send `price` (converted).
+- **Migration 003.**
+  - `003_drop_price.up.sql`: `DROP COLUMN price`.
+  - `.down.sql`: re-adds `price REAL CHECK (price > 0)` and fills it from `price_vnd / 1000.0`, with a comment that this
+    restores values, not the pre-drop column.
+- **`test/app.test.js`.**
+  - The fixture inserts only `price_vnd`, since all migrations are applied and `price` is gone.
+  - New tests: the column is gone, and GET one / list / PATCH / POST all still return a numeric `price`.
+  - `npm test` 11/11.
+
+Rehearsals by the assistant (scratchpad DBs and `git archive v3` copies, deleted after):
+1. **v3 → v4 → 003 under traffic.**
+   - v3 on both, traffic 14 s with new clients 0.3.
+   - Rolling v3 → v4. check: `disagree 1936`, `INCONSISTENT`, expected because v4 no longer writes `price`.
+   - `npm run migrate` (003) under traffic. check: `CONSISTENT`.
+   - Traffic: `RESULT: zero failed requests`.
+2. **v3 code on schema 003** crashes at start: `table menu_items has no column named price`.
+3. **migrate:down chain.** The sequence in CLAUDE.md was wrong: `seed` fails after 003 because `seed.js` inserts `price`.
+   Fixed in CLAUDE.md: migrate 001 + 002 from the v3 copy, seed, backfill, migrate 003, then `migrate:down` ×3 with checks.
+   - down 003 → `disagree 0`, CONSISTENT;
+   - down 002 → CONSISTENT;
+   - down 001 → check fails with "no such table", which is expected.
+
+Open decision 2 raised with me (check after v4 says INCONSISTENT); my answer is in the next entry.
+Asked for: the next step.
+Kept: (to fill in)
+Changed: (to fill in)
+Rejected: (to fill in)
+By hand: (to fill in)
+
+## 2026-10-14 — decision: check after v4 (open decision 2)
+Tool: Claude Code (Opus 5.5), multiple-choice question.
+Prompt: answered the assistant's question "check after v4 says INCONSISTENT; how to record it?" by choosing
+"Ghi thật + drop ngay (Recommended)".
+Response (summary): recorded in CLAUDE.md.
+- Run check after v4 and keep the INCONSISTENT output with a label that explains it.
+- Apply 003 immediately after, then check again (CONSISTENT).
+- MIGRATION.md will say `price` is a dead column once v4 is on both instances.
+
+The alternative (skip the v4 check) was rejected: the PDF asks for a check "after every step".
+By hand: the choice.

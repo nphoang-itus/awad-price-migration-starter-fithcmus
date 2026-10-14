@@ -1,10 +1,11 @@
 import { createServer } from 'node:http';
 
-// v3 of the menu service. Prices used to be stored in THOUSANDS of dong, as a
-// float (45.5 = 45,500 đ); IA#2 moves them to `price_vnd`, dong, integer.
-// v3 (needs migration 002 AND a finished backfill): READS `price_vnd` only
-// (price = price_vnd / 1000), still WRITES both `price` and `price_vnd` in one
-// statement on every write path, so v2 can still be rolled back to.
+// v4 of the menu service. Prices used to be stored in THOUSANDS of dong, as a
+// float (45.5 = 45,500 đ); IA#2 moved them to `price_vnd`, dong, integer.
+// v4 neither reads nor writes the `price` column, so it runs on schema 002
+// (after the backfill) and on schema 003 (price dropped). The HTTP contract is
+// unchanged: every response still carries `price` (thousands) = price_vnd / 1000,
+// and old clients may still send `price`.
 
 const json = (res, status, body) => {
   res.writeHead(status, { 'content-type': 'application/json' });
@@ -40,8 +41,8 @@ export function createApp(db) {
   const q = {
     list: db.prepare('SELECT id, name, price_vnd FROM menu_items ORDER BY id LIMIT ? OFFSET ?'),
     get: db.prepare('SELECT id, name, price_vnd FROM menu_items WHERE id = ?'),
-    insert: db.prepare('INSERT INTO menu_items (name, price, price_vnd) VALUES (?, ?, ?)'),
-    setPrice: db.prepare('UPDATE menu_items SET price = ?, price_vnd = ? WHERE id = ?'),
+    insert: db.prepare('INSERT INTO menu_items (name, price_vnd) VALUES (?, ?)'),
+    setPrice: db.prepare('UPDATE menu_items SET price_vnd = ? WHERE id = ?'),
     insertOrder: db.prepare("INSERT INTO orders (created_at) VALUES (datetime('now'))"),
     insertLine: db.prepare('INSERT INTO order_items (order_id, menu_item_id, qty, unit_price) VALUES (?, ?, ?, ?)'),
   };
@@ -66,7 +67,7 @@ export function createApp(db) {
         const p = body && priceFrom(body);
         if (!body || typeof body.name !== 'string' || !body.name || !p)
           return error(res, 400, 'invalid_body', 'name (string) and price (thousands of dong) or priceVnd (dong, integer) are required; if both, they must agree');
-        const { lastInsertRowid } = q.insert.run(body.name, p.price, p.priceVnd);
+        const { lastInsertRowid } = q.insert.run(body.name, p.priceVnd);
         return json(res, 201, view(q.get.get(lastInsertRowid)));
       }
     }
@@ -81,7 +82,7 @@ export function createApp(db) {
         const p = body && priceFrom(body);
         if (!p)
           return error(res, 400, 'invalid_body', 'price (thousands of dong) or priceVnd (dong, integer) is required; if both, they must agree');
-        q.setPrice.run(p.price, p.priceVnd, id);
+        q.setPrice.run(p.priceVnd, id);
         return json(res, 200, view(q.get.get(id)));
       }
     }

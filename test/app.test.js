@@ -10,8 +10,8 @@ before(async () => {
   const dir = new URL('../migrations/', import.meta.url);
   for (const f of readdirSync(dir).filter((f) => f.endsWith('.up.sql')).sort())
     db.exec(readFileSync(new URL(f, dir), 'utf8'));          // every migration, in order
-  // v3 reads price_vnd; in production the backfill has filled it before v3 runs.
-  db.exec("INSERT INTO menu_items (name, price, price_vnd) VALUES ('Phở bò', 45.5, 45500), ('Trà đá', 5, 5000)");
+  // Every migration is applied, including 003: the `price` column no longer exists.
+  db.exec("INSERT INTO menu_items (name, price_vnd) VALUES ('Phở bò', 45500), ('Trà đá', 5000)");
   server = createApp(db).listen(0);
   await new Promise((r) => server.once('listening', r));
   base = `http://localhost:${server.address().port}`;
@@ -23,7 +23,12 @@ const call = async (method, path, body) => {
   return { status: res.status, body: await res.json() };
 };
 
-const stored = (id) => ({ ...db.prepare('SELECT price, price_vnd FROM menu_items WHERE id = ?').get(id) });
+const stored = (id) => ({ ...db.prepare('SELECT price_vnd FROM menu_items WHERE id = ?').get(id) });
+
+test('after migration 003 the price column is gone', () => {
+  const cols = db.prepare('PRAGMA table_info(menu_items)').all().map((c) => c.name);
+  assert.ok(cols.includes('price_vnd') && !cols.includes('price'));
+});
 
 test('GET /menu/:id returns price in thousands of dong, and priceVnd in dong', async () => {
   assert.deepEqual(await call('GET', '/menu/1'), { status: 200, body: { id: 1, name: 'Phở bò', price: 45.5, priceVnd: 45500 } });
@@ -35,27 +40,27 @@ test('PATCH /menu/:id changes the price', async () => {
   assert.equal(r.body.price, 6);
 });
 
-test('PATCH with price writes both columns', async () => {
+test('PATCH with price (old client) stores price_vnd', async () => {
   const r = await call('PATCH', '/menu/2', { price: 7.5 });
   assert.deepEqual(r.body, { id: 2, name: 'Trà đá', price: 7.5, priceVnd: 7500 });
-  assert.deepEqual(stored(2), { price: 7.5, price_vnd: 7500 });
+  assert.deepEqual(stored(2), { price_vnd: 7500 });
 });
 
-test('PATCH with priceVnd (new client) writes both columns', async () => {
+test('PATCH with priceVnd (new client) stores price_vnd', async () => {
   const r = await call('PATCH', '/menu/2', { priceVnd: 6000 });
   assert.deepEqual(r.body, { id: 2, name: 'Trà đá', price: 6, priceVnd: 6000 });
-  assert.deepEqual(stored(2), { price: 6, price_vnd: 6000 });
+  assert.deepEqual(stored(2), { price_vnd: 6000 });
 });
 
-test('POST /menu writes both columns, from price or from priceVnd', async () => {
+test('POST /menu stores price_vnd, from price or from priceVnd, and returns price', async () => {
   const a = await call('POST', '/menu', { name: 'Cơm tấm', price: 35.5 });
   assert.equal(a.status, 201);
   assert.deepEqual(a.body, { id: a.body.id, name: 'Cơm tấm', price: 35.5, priceVnd: 35500 });
-  assert.deepEqual(stored(a.body.id), { price: 35.5, price_vnd: 35500 });
+  assert.deepEqual(stored(a.body.id), { price_vnd: 35500 });
   const b = await call('POST', '/menu', { name: 'Bún chả', priceVnd: 40000 });
   assert.equal(b.status, 201);
   assert.deepEqual(b.body, { id: b.body.id, name: 'Bún chả', price: 40, priceVnd: 40000 });
-  assert.deepEqual(stored(b.body.id), { price: 40, price_vnd: 40000 });
+  assert.deepEqual(stored(b.body.id), { price_vnd: 40000 });
   db.exec(`DELETE FROM menu_items WHERE id IN (${a.body.id}, ${b.body.id})`);
 });
 
@@ -65,7 +70,7 @@ test('price and priceVnd must agree; priceVnd must be a positive integer', async
   assert.equal((await call('PATCH', '/menu/2', { priceVnd: 6000.5 })).status, 400);
   assert.equal((await call('PATCH', '/menu/2', { priceVnd: -1 })).status, 400);
   assert.equal((await call('POST', '/menu', { name: 'x', priceVnd: '5000' })).status, 400);
-  assert.deepEqual(stored(2), { price: 6, price_vnd: 6000 });
+  assert.deepEqual(stored(2), { price_vnd: 6000 });
 });
 
 test('reads come from price_vnd, not price', async () => {
@@ -73,6 +78,15 @@ test('reads come from price_vnd, not price', async () => {
   assert.deepEqual((await call('GET', '/menu/2')).body, { id: 2, name: 'Trà đá', price: 6.5, priceVnd: 6500 });
   assert.equal((await call('GET', '/menu?limit=5')).body[1].price, 6.5);
   db.exec('UPDATE menu_items SET price_vnd = 6000 WHERE id = 2');
+});
+
+test('every endpoint still returns a numeric price after the drop', async () => {
+  for (const r of [await call('GET', '/menu/1'), await call('PATCH', '/menu/1', { price: 45.5 })])
+    assert.equal(r.body.price, 45.5);
+  assert.ok((await call('GET', '/menu')).body.every((x) => typeof x.price === 'number'));
+  const c = await call('POST', '/menu', { name: 'Chè', price: 15 });
+  assert.equal(c.body.price, 15);
+  db.exec(`DELETE FROM menu_items WHERE id = ${c.body.id}`);
 });
 
 test('POST /orders totals at the current price', async () => {
