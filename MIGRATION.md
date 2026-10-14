@@ -36,7 +36,7 @@ Matches the repository: tags `v1`–`v4`, `migrations/002_add_price_vnd.{up,down
 
 ## Point of no return: step 6, `003_drop_price`
 
-Proposed reason. Dropping `price` deletes the only copy of the old float values and the column v1–v3 depend on.
+Dropping `price` deletes the only copy of the old float values and the column v1–v3 depend on.
 After it, none of v1–v3 can even start. `003_drop_price.down.sql` re-creates the column, but it **restores values, not the
 pre-drop state**: every price is rebuilt from `price_vnd / 1000.0`. Any precision finer than 1/1000 of a thousand dong, and
 the history of what `price` held, is gone for good. Before step 6 every step could be undone with no loss.
