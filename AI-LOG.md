@@ -136,3 +136,30 @@ Kept: (to fill in)
 Changed: (to fill in)
 Rejected: (to fill in)
 By hand: (to fill in)
+
+## 2026-10-14 — step 4: backfill script
+Tool: Claude Code (Opus 5.5).
+Prompt (verbatim):
+> xong bước 3
+
+Response (summary): wrote `scripts/backfill.js` and added `"backfill"` to `package.json`.
+- Uses `open()` from `src/db.js`, so it honours `DB_PATH`.
+- Refuses to run if `price` or `price_vnd` is missing.
+- Each batch (`BATCH`, default 500 rows) is its own `BEGIN IMMEDIATE … COMMIT`, with a pause between batches (`PAUSE_MS`, default 50).
+- Fixes rows where `price IS NOT NULL AND (price_vnd IS NULL OR price_vnd <> CAST(round(price*1000) AS INTEGER))`,
+  which is the same rounding as the server and `check.js`.
+- Walks by id with a cursor; prints progress and the final remaining NULL / disagree / NULL-price counts.
+
+Rehearsals by the assistant, on scratchpad DBs only, deleted after:
+1. Stop and rerun. Seeded DB, then simulated "v2 wrote" on 1/7 of the rows, "v1 re-priced afterwards" on 1/14 (stale `price_vnd`),
+   and one row with NULL price. Before: `disagree 1428`, INCONSISTENT. Run 1 was killed after 0.4 s. Run 2 finished with
+   0 NULL and 0 disagree. Run 3 found 0 rows to fix, so it is idempotent. `check` then said "CONSISTENT, but 1 rows have
+   no price_vnd". That row is the simulated NULL-price row, which cannot occur in the real run: seed, v1 and v2 all require a price.
+2. Under traffic. Two v2 instances, traffic 12 s with new clients 0.3, backfill run in the middle (37 batches, 1.9 s).
+   Result: `RESULT: zero failed requests`, then `check` gave plain `CONSISTENT`.
+
+Asked for: the next step.
+Kept: (to fill in)
+Changed: (to fill in)
+Rejected: (to fill in)
+By hand: (to fill in)
