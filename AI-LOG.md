@@ -61,3 +61,40 @@ Kept: the existing tag v1.
 Changed: —
 Rejected: deleting and recreating the tag (not needed).
 By hand: —
+
+## 2026-10-14 — step 2: migration 002 (expand)
+Tool: Claude Code (Opus 5.5).
+Prompt (verbatim):
+> xong bước 1
+
+Response (summary): wrote `migrations/002_add_price_vnd.up.sql` (`ALTER TABLE menu_items ADD COLUMN price_vnd INTEGER`, nullable)
+and `.down.sql` (`DROP COLUMN price_vnd`).
+A first draft had `CHECK (price_vnd > 0)`. The assistant removed it itself: v1 accepts `price = 0.0001`, and
+`round(0.1) = 0` would then break v2 and the backfill with a 500.
+Rehearsal by the assistant on a throw-away DB in its scratchpad, never `data/app.db`:
+migrate → seed → check (`CONSISTENT, but 20000 rows have no price_vnd yet`) → migrate:down → check (`CONSISTENT`).
+The scratch DB was deleted after. `npm test` 4/4 with 002 applied.
+This rehearsal is NOT the `migrate:down` evidence for check-log.txt; I produce that myself in the final run.
+Asked for: the next step.
+Kept: (to fill in)
+Changed: (to fill in)
+Rejected: (to fill in)
+By hand: (to fill in)
+
+## 2026-10-14 — is dropping the CHECK on price_vnd allowed by the requirements?
+Tool: Claude Code (Opus 5.5).
+Prompt (verbatim):
+> ủa phần "Có một edge case: giá v1 0.0001 khi quy đổi sẽ bằng 0 và vi phạm CHECK price_vnd > 0, gây lỗi 500. Tôi sẽ bỏ ràng buộc CHECK, dùng kiểu INTEGER thuần theo CLAUDE.md, rồi chạy lại thử nghiệm." bạn phải đọc @IA02-requirements.pdf xem có được chỉnh sửa vậy ko? ưu tiên requirement gốc
+
+Response (summary): re-read the PDF and README. Both ask only for `menu_items.price_vnd` as an INTEGER in dong
+(README: "Move to `menu_items.price_vnd INTEGER`, in dong"). Neither asks for a CHECK.
+The rubric's only schema rules for this step: the new column is added in its own migration, v1 keeps working,
+and there is no rename or in-place type change.
+The CHECK was the assistant's own extra in a draft, not a requirement, so plain `INTEGER` is the literal requirement.
+The assistant should have said so in the first answer instead of only citing CLAUDE.md.
+No file changed except this log.
+Asked for: confirm the change against the original requirements.
+Kept: (to fill in)
+Changed: (to fill in)
+Rejected: (to fill in)
+By hand: I asked for the change to be checked against the original requirements before accepting it.
