@@ -36,15 +36,22 @@ export DB_PATH="$R/data/app.db"             # absolute: every version uses this 
 
 ```bash
 cd "$R"
-# a labelled check, with a UTC time to match the ISO start time in traffic-log.txt
-step() { { echo; echo "=== STEP $1 · $(date -u +%H:%M:%S)Z"; } | tee -a "$R/check-log.txt";
+# which code each instance REALLY runs: the directory (worktree) of the process listening on the port
+who() { for p in 3001 3002; do pid=$(lsof -ti tcp:$p -sTCP:LISTEN);
+          if [ -n "$pid" ]; then echo ":$p → $(basename "$(lsof -a -d cwd -p $pid -Fn | sed -n 's/^n//p')")";
+          else echo ":$p → DOWN"; fi; done; }
+# a labelled check, with a UTC time to match the ISO start time in traffic-log.txt,
+# plus the real version of each instance (so the label can be verified)
+step() { { echo; echo "=== STEP $1 · $(date -u +%H:%M:%S)Z"; who; } | tee -a "$R/check-log.txt";
          npm run -s check 2>&1 | tee -a "$R/check-log.txt"; }
 # run a command and keep its output in check-log.txt too
 logrun() { echo "\$ $*" | tee -a "$R/check-log.txt"; "$@" 2>&1 | tee -a "$R/check-log.txt"; }
 ```
 
 **Rules for the whole run:**
-- Restart **one instance at a time**.
+- Restart **one instance at a time**. **Never press Ctrl+C in T1 and T2 at the same time** (first attempt: both down → 682 `UNAVAILABLE`).
+- Before every `step`, run `who` in T4. It must show the versions the label says (e.g. `:3001 → v3`, `:3002 → v3`).
+  If not, fix the instances first. Never write a label you have not seen in `who`.
 - Before touching B, wait for both:
   1. A's terminal shows `menu service on :3001`;
   2. T3 shows `http://localhost:3001 back`.
@@ -57,7 +64,8 @@ logrun() { echo "\$ $*" | tee -a "$R/check-log.txt"; "$@" 2>&1 | tee -a "$R/chec
 ## 1. Fresh database, schema 001 only (T4)
 
 ```bash
-rm -f "$R"/data/app.db* "$R/traffic-log.txt" "$R/check-log.txt" "$R/new-clients.txt"
+who                                          # both must be DOWN; if not, Ctrl+C them in T1/T2 first
+rm -f "$R"/data/app.db{,-wal,-shm} "$R/traffic-log.txt" "$R/check-log.txt" "$R/new-clients.txt"
 (cd ../v1 && npm run migrate && npm run seed)   # NOT from $R: main would also apply 002 and 003
 ```
 
@@ -72,9 +80,13 @@ cd "$R/../v1" && PORT=3002 npm start
 cd "$R" && npm run traffic
 ```
 
-Wait ~15 s for a few `ok=` lines, then in T4:
+**CHECKPOINT. Do not go on until T3 shows `=== traffic start …` AND at least two `ok=` lines.**
+In the first attempt, 002 was applied ~50 s before traffic started, so that migration was not covered by the log.
+
+Then in T4:
 
 ```bash
+who                                          # :3001 → v1, :3002 → v1
 step "0 · baseline · schema 001 · A=v1 B=v1"
 ```
 
@@ -89,15 +101,19 @@ Expected: `CONSISTENT, but 20000+ rows have no price_vnd yet`.
 
 ## 4. Step 2: rolling restart v1 → v2
 
-```bash
-# T1: Ctrl+C, then:
-cd "$R/../v2" && PORT=3001 npm start
-# wait for "3001 back" in T3, then T2: Ctrl+C, then:
-cd "$R/../v2" && PORT=3002 npm start
-# wait for "3002 back" in T3
-```
+**Rolling restart to `v2`, the same 5 actions every time:**
 
-T4:
+| # | Terminal | Action |
+|---|---|---|
+| 0 | **T4** | `who`: note what runs now |
+| 1 | **T1** | press `Ctrl+C` (A stops; T3 prints `http://localhost:3001 down`; B serves everything) |
+| 2 | **T1** | `cd "$R/../v2" && PORT=3001 npm start` and wait for `menu service on :3001` |
+| 3 | **T3** | just look: wait for `http://localhost:3001 back` |
+| 4 | **T2** | press `Ctrl+C`, then `cd "$R/../v2" && PORT=3002 npm start` and wait for `menu service on :3002` |
+| 5 | **T3** | just look: wait for `http://localhost:3002 back` |
+| 5b | **T4** | `who` must show both on the new version, before the `step` |
+
+Then in **T4**:
 
 ```bash
 step "2 · schema 002 · A=v2 B=v2 (dual write on both)"
@@ -113,40 +129,70 @@ echo 0.3 > "$R/new-clients.txt"            # both instances now offer priceVnd
 
 Only now: no v1 is serving.
 
+The interruption is automatic: the backfill is stopped with SIGINT after 4 s. No Ctrl+C needed, so no risk of pressing it
+in the wrong terminal.
+
 ```bash
-BATCH=200 PAUSE_MS=100 npm run backfill 2>&1 | tee -a check-log.txt   # press Ctrl+C after 3-4 progress lines
-step "3a · backfill interrupted on purpose · A=v2 B=v2"
+who                                          # :3001 → v2, :3002 → v2 (no v1 left)
+echo '$ backfill, stopped with SIGINT after 4 s (on purpose)' | tee -a check-log.txt
+{ BATCH=200 PAUSE_MS=100 node scripts/backfill.js & BF=$!; sleep 4; kill -INT $BF; wait $BF; } 2>&1 | tee -a check-log.txt
+step "3a · backfill interrupted on purpose · A=v2 B=v2"   # must still show price_vnd_null > 0
 logrun npm run -s backfill                  # rerun: finishes the rest
 step "3 · after backfill · A=v2 B=v2"        # must be plain CONSISTENT
 ```
 
-## 6. Step 4: rolling v2 → v3, then the rollback v3 → v2 → v3 (C5)
+## 6. Step 4: v2 → v3, then the rollback v3 → v2, then v2 → v3 again (C5)
 
-```bash
-# T1: Ctrl+C → cd "$R/../v3" && PORT=3001 npm start ; wait "3001 back"
-# T2: Ctrl+C → cd "$R/../v3" && PORT=3002 npm start ; wait "3002 back"
-step "4 · schema 002 · A=v3 B=v3 (reads price_vnd) · before rollback"
+There are three rounds. Each round is the same rolling restart as in section 4 (T1 → wait → T2 → wait), only the
+directory changes. Each round ends with one `step` in **T4**.
+**Each round must add 2 down/back pairs in T3.** If a `step` would follow no new down/back, you skipped a round.
+In the first attempt, "4F" was written without the forward restart, then v4 went next to v2 → 28,000+ `STALE` + `CONTRACT`.
 
-# rollback, same pattern, to ../v2
-# T1: Ctrl+C → cd "$R/../v2" && PORT=3001 npm start ; wait "3001 back"
-# T2: Ctrl+C → cd "$R/../v2" && PORT=3002 npm start ; wait "3002 back"
-step "4R · ROLLBACK · schema 002 · A=v2 B=v2"
+**Round 1: up to v3** (the version that reads `price_vnd`)
 
-# forward again to ../v3
-# T1: Ctrl+C → cd "$R/../v3" && PORT=3001 npm start ; wait "3001 back"
-# T2: Ctrl+C → cd "$R/../v3" && PORT=3002 npm start ; wait "3002 back"
-step "4F · FORWARD again · schema 002 · A=v3 B=v3"
-```
+**Rolling restart to `v3`:**
 
-All three must be `CONSISTENT`. Note the T3 times of these six down/back lines, for SELF_ASSESSMENT.
+| # | Terminal | Action |
+|---|---|---|
+| 0 | **T4** | `who`: note what runs now |
+| 1 | **T1** | press `Ctrl+C` (A stops; T3 prints `http://localhost:3001 down`; B serves everything) |
+| 2 | **T1** | `cd "$R/../v3" && PORT=3001 npm start` and wait for `menu service on :3001` |
+| 3 | **T3** | just look: wait for `http://localhost:3001 back` |
+| 4 | **T2** | press `Ctrl+C`, then `cd "$R/../v3" && PORT=3002 npm start` and wait for `menu service on :3002` |
+| 5 | **T3** | just look: wait for `http://localhost:3002 back` |
+| 5b | **T4** | `who` must show both on the new version, before the `step` |
+
+Then **T4**: `step "4 · schema 002 · A=v3 B=v3 (reads price_vnd) · before rollback"` → must be `CONSISTENT`
+
+**Round 2: ROLLBACK to v2.** Same 5 actions with `../v2` instead of `../v3`:
+`cd "$R/../v2" && PORT=3001 npm start` in T1, then `cd "$R/../v2" && PORT=3002 npm start` in T2.
+
+Then **T4**: `step "4R · ROLLBACK · schema 002 · A=v2 B=v2"` → must be `CONSISTENT`
+
+**Round 3: FORWARD to v3 again.** Same 5 actions with `../v3`.
+
+Then **T4**: `step "4F · FORWARD again · schema 002 · A=v3 B=v3"` → must be `CONSISTENT`
+
+At the end, T3 shows 6 new down/back pairs, one instance at a time, with no `ERROR` / `STALE` / `UNAVAILABLE` lines.
+Note their T3 times for SELF_ASSESSMENT.
 
 ## 7. Step 5: rolling v3 → v4, then drop right away (C6)
 
-```bash
-# T1: Ctrl+C → cd "$R/../v4" && PORT=3001 npm start ; wait "3001 back"
-# T2: Ctrl+C → cd "$R/../v4" && PORT=3002 npm start ; wait "3002 back"
-step "5 · schema 002 · A=v4 B=v4 · EXPECTED INCONSISTENT: v4 no longer writes price, so price is now a dead column"
-```
+**Rolling restart to `v4`:**
+
+| # | Terminal | Action |
+|---|---|---|
+| 0 | **T4** | `who`: note what runs now |
+| 1 | **T1** | press `Ctrl+C` (A stops; T3 prints `http://localhost:3001 down`; B serves everything) |
+| 2 | **T1** | `cd "$R/../v4" && PORT=3001 npm start` and wait for `menu service on :3001` |
+| 3 | **T3** | just look: wait for `http://localhost:3001 back` |
+| 4 | **T2** | press `Ctrl+C`, then `cd "$R/../v4" && PORT=3002 npm start` and wait for `menu service on :3002` |
+| 5 | **T3** | just look: wait for `http://localhost:3002 back` |
+| 5b | **T4** | `who` must show both on the new version, before the `step` |
+
+Then **T4**: `step "5 · schema 002 · A=v4 B=v4 · EXPECTED INCONSISTENT: v4 no longer writes price, so price is now a dead column"`
+
+Go straight on to section 8.
 
 ## 8. Step 6: migration 003, under traffic, immediately after (T4)
 
@@ -167,7 +213,7 @@ step "6 · schema 003 (price dropped) · A=v4 B=v4 · POINT OF NO RETURN"
 Run in T4. It uses a separate DB file, so the real one is untouched.
 
 ```bash
-export DB_PATH="$R/data/scratch.db"; rm -f "$R"/data/scratch.db*
+export DB_PATH="$R/data/scratch.db"; rm -f "$R"/data/scratch.db{,-wal,-shm}
 echo -e "\n=== MIGRATE:DOWN EVIDENCE · separate DB data/scratch.db" | tee -a check-log.txt
 (cd ../v3 && npm run migrate) 2>&1 | tee -a check-log.txt       # 001 + 002 only
 logrun npm run -s seed

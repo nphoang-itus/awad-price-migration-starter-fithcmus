@@ -43,9 +43,9 @@ Files:
 
 Untested: the traffic.js patch has not been run against a live server yet.
 Asked for: let NEW_CLIENTS change mid-run, keep the AI-LOG short, make the backfill reach plain CONSISTENT.
-Kept: (to fill in after review)
-Changed: (to fill in)
-Rejected: (to fill in)
+Kept: patching `traffic.js` so one continuous log covers the whole run (share re-read from `new-clients.txt`); the short-summary format (prompts verbatim, responses summarised); the CLAUDE.md backfill fix.
+Changed: `scripts/traffic.js` (new `NEW_CLIENTS_FILE`, disclosed); CLAUDE.md (backfill also fixes rows where `price_vnd` disagrees with `price`, first test changes in the v2 commit, 003 only in the v4 commit, open decision 1 recorded); `.gitignore`.
+Rejected: splitting the evidence into several traffic runs/logs; copying every full response into the AI-LOG; the original `WHERE price_vnd IS NULL` backfill condition.
 By hand: I decided to patch traffic.js instead of accepting a split log.
 
 ## 2026-10-14 — tag v1 already exists
@@ -76,10 +76,10 @@ migrate → seed → check (`CONSISTENT, but 20000 rows have no price_vnd yet`) 
 The scratch DB was deleted after. `npm test` 4/4 with 002 applied.
 This rehearsal is NOT the `migrate:down` evidence for check-log.txt; I produce that myself in the final run.
 Asked for: the next step.
-Kept: (to fill in)
-Changed: (to fill in)
-Rejected: (to fill in)
-By hand: (to fill in)
+Kept: `price_vnd INTEGER` added as a nullable column in its own migration, with a matching `.down.sql`; rehearsing on a throw-away DB instead of `data/app.db`.
+Changed: the assistant removed its own draft `CHECK (price_vnd > 0)` before delivering, because v1 accepts `price = 0.0001` and `round(0.1) = 0` would cause a 500.
+Rejected: the `CHECK (price_vnd > 0)` constraint.
+By hand: nothing executed yet at this step; the real `migrate` and the `migrate:down` evidence for check-log.txt are mine to produce in the final run.
 
 ## 2026-10-14 — is dropping the CHECK on price_vnd allowed by the requirements?
 Tool: Claude Code (Opus 5.5).
@@ -94,9 +94,9 @@ The CHECK was the assistant's own extra in a draft, not a requirement, so plain 
 The assistant should have said so in the first answer instead of only citing CLAUDE.md.
 No file changed except this log.
 Asked for: confirm the change against the original requirements.
-Kept: (to fill in)
-Changed: (to fill in)
-Rejected: (to fill in)
+Kept: plain `INTEGER` for `price_vnd`, which is what the PDF and README literally ask for.
+Changed: no code changed; the log now records that the CHECK was the assistant's own extra, not a requirement.
+Rejected: justifying the schema only by CLAUDE.md; the CHECK constraint.
 By hand: I asked for the change to be checked against the original requirements before accepting it.
 
 ## 2026-10-14 — CLAUDE.md checked against the PDF + step 3: code v2 (expand: dual write)
@@ -132,10 +132,10 @@ Response (summary):
   script, not of v2. Rerun with a 1 s gap was clean. `src/db.js` was NOT changed.
 
 Asked for: follow the PDF first, fix CLAUDE.md where it is wrong, then continue.
-Kept: (to fill in)
-Changed: (to fill in)
-Rejected: (to fill in)
-By hand: (to fill in)
+Kept: v2 dual write (`price` + `price_vnd` in ONE statement) on both write paths; the `priceVnd` validation rules; the "PDF -> README -> CLAUDE.md" source-of-truth rule; `src/db.js` unchanged.
+Changed: CLAUDE.md runbook (002/003 applied under traffic, initial migrate + seed from the v1 worktree, `migrate:down` evidence includes 001, no `git tag v1`); `src/app.js` (v2); `test/app.test.js` (8/8 pass).
+Rejected: running `npm run migrate` from `main` before traffic (it breaks criterion 4); changing `db.js` to avoid the `database is locked` crash (fault of the test script, not of v2).
+By hand: I told the assistant to follow the PDF first and fix CLAUDE.md where it was wrong; the assistant's rehearsal is not evidence, I run the real deploys myself.
 
 ## 2026-10-14 — step 4: backfill script
 Tool: Claude Code (Opus 5.5).
@@ -159,10 +159,10 @@ Rehearsals by the assistant, on scratchpad DBs only, deleted after:
    Result: `RESULT: zero failed requests`, then `check` gave plain `CONSISTENT`.
 
 Asked for: the next step.
-Kept: (to fill in)
-Changed: (to fill in)
-Rejected: (to fill in)
-By hand: (to fill in)
+Kept: batched backfill (own `BEGIN IMMEDIATE ... COMMIT` per batch, pause between batches, id cursor), idempotent, honours `DB_PATH`, same rounding as the server and `check.js`.
+Changed: new `scripts/backfill.js`; `"backfill"` added to `package.json`.
+Rejected: a NULL-only backfill condition, since it misses rows that v1 re-priced after v2 dual-wrote them.
+By hand: the real backfill on `data/app.db` under traffic, including the interrupt and the rerun, is mine to run.
 
 ## 2026-10-14 — step 5: code v3 (reads price_vnd)
 Tool: Claude Code (Opus 5.5).
@@ -187,10 +187,10 @@ migrate → seed → backfill, then two v2 instances and traffic for 24 s with n
 Sequence: rolling v2→v3, check `CONSISTENT`, rollback v3→v2 rolling, check `CONSISTENT`, v2→v3 again, check `CONSISTENT`.
 One instance at a time: 6 down/back pairs, `RESULT: zero failed requests`.
 Asked for: the next step.
-Kept: (to fill in)
-Changed: (to fill in)
-Rejected: (to fill in)
-By hand: (to fill in)
+Kept: v3 still writes both columns, so v3 -> v2 rollback stays safe; `price = price_vnd / 1000` in responses and in `/orders` `unit_price`.
+Changed: `src/app.js` (v3 reads `price_vnd`); `test/app.test.js` (fixture inserts `price_vnd`, new read-source test, 9/9 pass).
+Rejected: a fallback to `price` when `price_vnd` is NULL; v3 relies on the finished backfill.
+By hand: the real rolling v2 -> v3, the rollback and the checks around them are mine to run.
 
 ## 2026-10-14 — step 6: code v4 + migration 003 (contract)
 Tool: Claude Code (Opus 5.5).
@@ -224,10 +224,10 @@ Rehearsals by the assistant (scratchpad DBs and `git archive v3` copies, deleted
 
 Open decision 2 raised with me (check after v4 says INCONSISTENT); my answer is in the next entry.
 Asked for: the next step.
-Kept: (to fill in)
-Changed: (to fill in)
-Rejected: (to fill in)
-By hand: (to fill in)
+Kept: responses still expose a numeric `price` derived from `price_vnd`; 003 `.down.sql` restores values from `price_vnd` (and says so in a comment); 003 lives only in the v4 commit.
+Changed: `src/app.js` (v4, no read/write of `price`); migrations `003_drop_price.up/down.sql`; `test/app.test.js` (11/11 pass); CLAUDE.md `migrate:down` sequence (`seed` fails after 003).
+Rejected: the old `migrate:down` sequence in CLAUDE.md; v3 code on schema 003 (crashes at start, shown in the rehearsal).
+By hand: I answered open decision 2 (next entry); the real 003 under traffic and the `migrate:down` x3 evidence are mine to run.
 
 ## 2026-10-14 — decision: check after v4 (open decision 2)
 Tool: Claude Code (Opus 5.5), multiple-choice question.
@@ -272,10 +272,10 @@ about 35 s of traffic; deleted after):
 Traffic: 20 down/back lines, `new clients 0 -> 0.3` logged, `RESULT: zero failed requests`, 0 server errors.
 The real run has NOT been done; that is mine to do.
 Asked for: the next step.
-Kept: (to fill in)
-Changed: (to fill in)
-Rejected: (to fill in)
-By hand: (to fill in)
+Kept: the 4-terminal layout, worktrees `../v1`..`../v4`, `step`/`logrun` helpers, 002 and 003 applied under traffic, the v4 check labelled "EXPECTED INCONSISTENT", a separate DB for `migrate:down`.
+Changed: new `RUNBOOK.md`; CLAUDE.md now points to it.
+Rejected: treating the compressed rehearsal as run evidence; it is only a rehearsal.
+By hand: the real run itself, with every command typed in the four terminals by me.
 
 ## 2026-10-14 — "xong bước 7", but no run evidence found
 Tool: Claude Code (Opus 5.5).
@@ -350,7 +350,32 @@ Response (summary):
   repo, and mention the failed first attempt honestly.
 
 The assistant did not delete, move or edit any log.
-Kept: (to fill in)
-Changed: (to fill in)
-Rejected: (to fill in)
-By hand: (to fill in; I ran the first attempt myself)
+Kept: the diagnosis that the failures were operational mistakes, not code bugs; the recommendation to redo the run from scratch; mentioning the failed first attempt honestly in the documents.
+Changed: `RUNBOOK.md` only: `who` check and `who` recorded in every `step`, traffic-running checkpoint before 002, never Ctrl+C T1 and T2 together, automatic SIGINT for the backfill after 4 s, 2 new down/back pairs required per rollback round, `rm` without zsh globs. No logs and no code were touched.
+Rejected: submitting the run with 28,894 failed requests as final; editing or deleting the failed logs; blaming the code.
+By hand: I ran the first attempt myself (it failed); I redid the run from scratch with the hardened runbook, and the committed logs from that run show zero failed requests.
+
+## 2026-10-14 — step 8: MIGRATION.md + SELF_ASSESSMENT_REPORT.md drafts
+Tool: Claude Code (Opus 5.5).
+Prompt (verbatim):
+> xong bước 7
+
+Response (summary): read my committed `traffic-log.txt` (45 lines, `RESULT: zero failed requests`, 5 rolling restarts
+one instance at a time, new clients 0 → 0.3 at line 11) and `check-log.txt` (every step labelled, with `who` confirming versions).
+Drafted from them:
+- `MIGRATION.md`:
+  - version table, and the plan table (7 steps × 4 columns);
+  - proposed point of no return = step 6 (003). The final sentence is marked **TODO (student)**;
+  - why v3 → v2 is safe and v4 → v2 is not;
+  - explanation of the two expected INCONSISTENT checks (step 2 `disagree 9`, step 5 `disagree 1926`);
+  - backfill notes, an evidence map with line numbers;
+  - disclosures: traffic.js patch, live-run.sh, failed first attempt; a PostgreSQL lock note.
+- `SELF_ASSESSMENT_REPORT.md`: one row per criterion with evidence line ranges, and "what I did not manage".
+  The marks (18/19/14/17/14/9 = 91) are the assistant's **suggestion**, kept conservative (C4 lowered because of the
+  traffic.js patch). I must review them, add my student ID, and name the zip with the final total.
+
+`npm test` 11/11 on the current main.
+Kept: the structure of `MIGRATION.md` (version table, 7-step plan, why v3 -> v2 is safe and v4 -> v2 is not, the two expected INCONSISTENT checks, evidence map with line numbers, disclosures) and the one-row-per-criterion layout of the self-assessment.
+Changed: new `MIGRATION.md` and `SELF_ASSESSMENT_REPORT.md`, drafted from my committed logs; no code change.
+Rejected: inventing evidence or numbers not present in `traffic-log.txt` / `check-log.txt`; leaving the marks as final without my review.
+By hand: still to do: write the point-of-no-return sentence (marked TODO), review the suggested marks (91 total), add my student ID, name the zip with the final total.
